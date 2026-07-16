@@ -7,6 +7,7 @@
 | 스킬 | 설명 | 다운로드 |
 |---|---|---|
 | [excel-theme](excel-theme/) | 엑셀(.xlsx) 생성·편집 시 일관된 색·폰트·표 서식 테마 적용 (default·procpa·dcf-valuation 3종) | [excel-theme.zip](https://github.com/procpalee/claude-skills/releases/latest/download/excel-theme.zip) |
+| [word-theme](word-theme/) | 워드(.docx) 서식 테마(default·procpa) + 문서 유형별 제목부 프리셋(보고서·메모·제안서·의견서·조서) | [word-theme.zip](https://github.com/procpalee/claude-skills/releases/latest/download/word-theme.zip) |
 
 ## 설치
 

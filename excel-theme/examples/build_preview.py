@@ -20,14 +20,14 @@ from openpyxl.styles import Font
 from openpyxl.utils import get_column_letter
 from excel_theme import (apply_theme, style_header_row, style_total_row,
                          style_subheader_row, mark_cells, highlight_threshold,
-                         get_theme, THEMES)
+                         get_theme, THEMES, sheet_label)
 from table_samples import SAMPLES
 
 
 def build_header_demo(ws, theme_name):
     """헤더 3색(제목 B2 / 본문 기본 / 본문 세컨더리)을 한 시트에 보여준다."""
     th = get_theme(theme_name)
-    ws["B2"] = "헤더 3종 — 제목 / 본문 기본 / 본문 세컨더리"
+    ws["B2"] = sheet_label(ws)   # 제목 밴드는 시트명만
     # 표1: 본문 기본 헤더
     for j, h in enumerate(["계정", "당기", "전기"]):
         ws.cell(4, 2 + j, h)
@@ -56,7 +56,7 @@ def build_header_demo(ws, theme_name):
 
 def build_sheet(ws, spec, theme_name):
     th = get_theme(theme_name)
-    ws["B2"] = spec.get("title", spec["name"])
+    ws["B2"] = sheet_label(ws)   # 제목 밴드는 시트명만 (확정 2026-09-10)
 
     headers = spec["headers"]
     n_cols = len(headers)

@@ -140,7 +140,7 @@ PALETTES = {
                   "h3": 11, "header": 11, "body": 11, "small": 10},
         "excel_zebra": False, "excel_highlight_neg": False, "excel_neg_red": True,
         "excel_table_style": "frame", "excel_title_fill": True,
-        "excel_currency_format": "million_won",   # 통화 기본 단위 = 백만원 (정산표 관행)
+        "excel_currency_format": "accounting",    # 통화 기본 = 원 단위 회계서식 (사용자 확정 2026-09-14, 백만원은 number_cols 로 지정)
         "excel_title_size": 11, "excel_size_header": 11, "excel_size_body": 11,
         "excel_row_header": 20, "excel_row_body": 16,
         "colors": {
@@ -181,7 +181,7 @@ PALETTES = {
                   "h3": 11, "header": 11, "body": 11, "small": 10},
         "excel_zebra": False, "excel_highlight_neg": False, "excel_neg_red": True,
         "excel_table_style": "frame", "excel_title_fill": True,
-        "excel_currency_format": "million_won",
+        "excel_currency_format": "accounting",
         "excel_title_size": 11, "excel_size_header": 11, "excel_size_body": 11,
         "excel_row_header": 20, "excel_row_body": 16,
         "colors": {
@@ -209,7 +209,7 @@ PALETTES = {
                   "h3": 11, "header": 11, "body": 11, "small": 10},
         "excel_zebra": False, "excel_highlight_neg": False, "excel_neg_red": True,
         "excel_table_style": "frame", "excel_title_fill": True,
-        "excel_currency_format": "million_won",
+        "excel_currency_format": "accounting",
         "excel_title_size": 12, "excel_size_header": 11, "excel_size_body": 11,
         "excel_row_header": 20, "excel_row_body": 16,
         # 탭 색: 팔레트의 진한→연한 브랜드색 4단 + 무채색 원본
@@ -407,6 +407,7 @@ def theme_from_palette(p):
         "total_fill":         c.get("excel_total_fill", c["band"]),   # 소계/합계 배경(기본=band, 테마 지정 시 헤더색 등)
         "note_fill":          c["note"],
         "linked_fill":        c.get("linked", "CCECFF"),     # 타시트 연결 셀(파랑)
+        "todo_fill":          c.get("todo", "FFFF00"),       # 미입수 - 아직 회사에서 못 받은 자료(노랑)
         "currency_format":    p.get("excel_currency_format", "accounting"),
         "accent_color":       c["negative"],
         "border_color":       c["border_in"],
@@ -721,13 +722,38 @@ def style_subheader_row(ws, theme, row, min_col, max_col):
                       bold=True, color=fcolor)
 
 
+# 문장부호 규칙(사용자 확정 2026-09-11): 엑셀 셀 텍스트에 긴 대시를 쓰지 않는다(가운뎃점 · 은 허용).
+#   — – ― (긴/중간 대시) → "-"    ("연령분석 — 잔액" → "연령분석 - 잔액")
+PUNCT_DASHES = "—–―"
+_DASH_RE = re.compile(r"[" + PUNCT_DASHES + r"]")
+
+
+def plain_punct(value):
+    """셀 텍스트의 긴 대시를 "-" 로 바꾼다. 문자열이 아니거나 수식(=…)이면 그대로."""
+    if not isinstance(value, str) or value.startswith("="):
+        return value
+    return _DASH_RE.sub("-", value)
+
+
+def normalize_punct(ws, min_row, min_col, max_row, max_col):
+    """범위 안의 텍스트 셀에 plain_punct 를 적용한다(수식·숫자는 건드리지 않음). 반환: 바꾼 셀 수."""
+    n = 0
+    for r in range(min_row, max_row + 1):
+        for col in range(min_col, max_col + 1):
+            c = ws.cell(row=r, column=col)
+            v = plain_punct(c.value)
+            if v != c.value:
+                c.value = v; n += 1
+    return n
+
+
 def write_caption(ws, cell, text, theme=DEFAULT_THEME):
     """표 소제목(캡션) 규칙(사용자 확정 2026-09-04): 본문 폰트(맑은 고딕) 11pt 굵게, 검정.
     캡션 행 바로 아래 1행은 비워 두고 그 다음 행에 표 헤더를 둔다
     (예: B12 캡션 → 13행 공백 → 14행 헤더). 캡션은 표 영역 밖이므로 apply_theme 대상이 아니다."""
     th = theme if isinstance(theme, dict) else get_theme(theme)
     c = ws[cell]
-    c.value = text
+    c.value = plain_punct(text)
     c.font = Font(name=th["font_name"], size=th.get("font_size_body", 11), bold=True,
                   color="000000")
     c.alignment = Alignment(horizontal="left", vertical="center")
@@ -763,7 +789,8 @@ def write_header(ws, meta, title=None, style="grid", theme=DEFAULT_THEME, last_c
             "block" = 제목 밴드 + 좌(회사·조서·기준일)/우(작성·검토·상태) 2단 정보블록 — 메모형
     last_col: 제목 밴드·정보표가 차지할 마지막 열(본문 표 폭과 일치시킨다)."""
     th = theme if isinstance(theme, dict) else get_theme(theme)
-    title = title_only(title, ws)
+    title = plain_punct(title_only(title, ws))
+    meta = {k: plain_punct(v) for k, v in (meta or {}).items()}
     fn = th["font_name"]
     lab_fill = _fill(th["header_bg"])
     thin = Side(style="thin", color=th.get("border_in", "BFBFBF"))
@@ -898,7 +925,7 @@ def write_title(ws, title=None, theme=DEFAULT_THEME, last_col=7, first_col=2, ta
             (조서 헤더 6항목을 쓰는 `audit` 테마는 이 밴드를 쓰지 않는다 — 그쪽은 그대로.)
     tab: 시트 탭 색 역할(guide/output/calc/input/pbc/raw) — 주면 set_tab 을 같이 호출한다."""
     th = theme if isinstance(theme, dict) else get_theme(theme)
-    title = title_only(title, ws)
+    title = plain_punct(title_only(title, ws))
     ws.column_dimensions[get_column_letter(1)].width = 2.0
     bar = _fill(th.get("title_bg", th["header_bg"]))
     for col in range(first_col, last_col + 1):
@@ -956,7 +983,7 @@ def write_audit_header(ws, meta, sheet_title=None, theme="audit", first_col=2, t
     def box_for(r, col):
         return Border(left=(None if col == first_col else thin), right=(None if col == last_col else thin),
                       top=(thick if r == 2 else thin), bottom=(thick if r == 3 else thin))
-    m = dict(meta or {})
+    m = {k: plain_punct(v) for k, v in (meta or {}).items()}
     # 시트명 기본값: ws.title 에서 앞의 순번("10 ", "20 ")을 뗀 이름(사용자 확정 2026-09-09) — "10 개요" → "개요"
     m.setdefault("시트명", sheet_title if sheet_title is not None else sheet_label(ws))
     g = lambda k: m.get(k, "") or ""
@@ -990,7 +1017,7 @@ def write_section_bar(ws, row, text, theme=DEFAULT_THEME, first_col=2, last_col=
     for col in range(first_col, last_col + 1):
         c = ws.cell(row=row, column=col); c.fill = bar; c.font = font
         c.alignment = Alignment(horizontal="left", vertical="center")
-    ws.cell(row=row, column=first_col, value=text)
+    ws.cell(row=row, column=first_col, value=plain_punct(text))
     return row + 2
 
 
@@ -1021,14 +1048,15 @@ def _fill_ranges(ws, hexcolor, ranges):
             obj.fill = bg
 
 
-def mark_cells(ws, theme, *, input=(), linked=()):
+def mark_cells(ws, theme, *, input=(), linked=(), todo=()):
     """셀 종류를 색으로 표시 (DCF·감사조서 관행).
 
       input  : 직접 입력(하드코딩) 셀 → note_fill(#FFFBEF, 크림)
       linked : 타시트 연결 셀        → linked_fill(#CCECFF, 파랑)
+      todo   : 미입수 - 아직 회사에서 못 받은 자료 → todo_fill(#FFFF00, 노랑)
       (수식 셀은 별도 표시 없음 = 검정 본문)
 
-        mark_cells(ws, "default", input=["C5:C9", "E12"], linked=["C7"])
+        mark_cells(ws, "default", input=["C5:C9", "E12"], todo=["I5:I40"])
     """
     th = theme if isinstance(theme, dict) else get_theme(theme)
     if isinstance(input, str):
@@ -1037,8 +1065,12 @@ def mark_cells(ws, theme, *, input=(), linked=()):
         linked = [linked]
     if input:
         _fill_ranges(ws, th.get("note_fill", "FFFBEF"), input)
+    if isinstance(todo, str):
+        todo = [todo]
     if linked:
         _fill_ranges(ws, th.get("linked_fill", "CCECFF"), linked)
+    if todo:
+        _fill_ranges(ws, th.get("todo_fill", "FFFF00"), todo)
 
 
 def highlight_hardcoded(ws, theme, *ranges):
@@ -1113,6 +1145,10 @@ def apply_theme(ws, theme=DEFAULT_THEME, header_row=1, data_range=None,
             tc.font = Font(name=th["font_name"], size=th["font_size_title"],
                            bold=True, color=th["title_color"])
         tc.alignment = Alignment(horizontal="left", vertical="center")
+        tc.value = plain_punct(tc.value)
+
+    # 문장부호 규칙(2026-09-11): 표 영역 텍스트의 — → "-" (수식·숫자 제외)
+    normalize_punct(ws, min_row, min_col, max_row, max_col)
 
     # 본문 → 줄무늬 → 헤더 → 테두리 순서 (뒤가 앞을 덮어씀)
     style_body(ws, th, header_row, min_col, min_row, max_col, max_row)
@@ -1142,7 +1178,7 @@ def apply_theme(ws, theme=DEFAULT_THEME, header_row=1, data_range=None,
 def write_table(ws, headers, rows, theme=DEFAULT_THEME, *,
                 title=None, number_cols=None, currency_cols=(), percent_cols=(),
                 total_rows=(), subtotal_rows=(), section_rows=(),
-                input_cells=(), linked_cells=(),
+                input_cells=(), linked_cells=(), todo_cells=(),
                 title_cell="B2", header_row=4, start_col=2, secondary=False):
     """데이터를 받아 **한 번에** themed 표를 작성한다. 반환: 사용한 data_range.
 
@@ -1151,10 +1187,10 @@ def write_table(ws, headers, rows, theme=DEFAULT_THEME, *,
       rows          : 2차원 리스트. None 셀은 비움(섹션 라벨 행 등).
       title         : B2 시트 제목 (None이면 제목 미작성)
       number_cols   : {열키: 서식키/문자열}. 열키=0-based 데이터열 인덱스 또는 'C' 같은 문자.
-      currency_cols : 통화 열 인덱스들 → 테마 기본 통화서식(default=백만원, 그 외 accounting).
+      currency_cols : 통화 열 인덱스들 → 테마 기본 통화서식(전 테마 accounting = 원 단위 회계서식).
       percent_cols  : 퍼센트 열 인덱스들 → percent_acct.
       total/subtotal/section_rows : 데이터 1-based 인덱스(rows 기준).
-      input_cells / linked_cells  : 입력=크림·연결=파랑 으로 표시할 범위/셀 (mark_cells).
+      input_cells / linked_cells / todo_cells : 입력=크림·연결=파랑·미입수=노랑 으로 표시할 범위/셀 (mark_cells).
       secondary     : True 면 서브표(2차 표) — 헤더·소계·합계 배경을 header2_bg 로 통일.
 
     예) write_table(ws, ["계정","당기","전기"], data, theme="default",
@@ -1205,7 +1241,7 @@ def write_table(ws, headers, rows, theme=DEFAULT_THEME, *,
     for idx in total_rows:
         style_total_row(ws, th, _srow(idx), start_col, mx, fill=True, secondary=secondary)
 
-    if input_cells or linked_cells:
-        mark_cells(ws, th, input=list(input_cells), linked=list(linked_cells))
+    if input_cells or linked_cells or todo_cells:
+        mark_cells(ws, th, input=list(input_cells), linked=list(linked_cells), todo=list(todo_cells))
 
     return data_range

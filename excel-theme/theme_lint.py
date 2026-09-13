@@ -14,13 +14,20 @@
   6. 탭 색     — 테마 tab_colors(역할 5색) 또는 색 없음만 허용. 안내·표지 시트는 색 금지
   7. 제목 밴드  — default 계열(audit 제외)은 B2 제목 밴드에 **시트명만**(앞 순번 뗀 ws.title).
                  설명·부제·회사명·기준일을 덧붙이지 않는다 (사용자 확정 2026-09-10)
+  8. 문장부호  — 셀 텍스트·시트명에 긴 대시(— – ―) 금지 → "-" 사용 (가운뎃점 · 은 허용)
+                 (사용자 확정 2026-09-11, 모든 테마)
+  9. 캡션 길이  — 표 소제목(B열 굵은 글씨, 채움 없음)은 **짧은 제목만**. MAX_CAPTION(40자) 초과 금지
+                 설명·근거·판단 사유는 캡션이 아니라 표의 비고 열이나 안내 시트에 쓴다 (사용자 확정 2026-09-12)
 
 종료코드: 위반 0건이면 0, 있으면 1. 산출 직후 이 린트를 돌려 0을 확인한다.
 """
 import sys, io
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
 from openpyxl import load_workbook
-from excel_theme import get_theme, sheet_label, _canon
+from excel_theme import get_theme, sheet_label, _canon, PUNCT_DASHES
+
+_BAD_PUNCT = set(PUNCT_DASHES)
+MAX_CAPTION = 40   # 표 소제목(캡션) 최대 글자수 - 설명은 비고 열·안내 시트로 (사용자 확정 2026-09-12)
 
 def norm(rgb):
     s = str(rgb or "")
@@ -28,7 +35,7 @@ def norm(rgb):
 
 def lint(path, theme="default", only=None):
     th = get_theme(theme)
-    ok_fills = {norm(th[k]) for k in ("header_bg", "note_fill", "linked_fill", "total_fill",
+    ok_fills = {norm(th[k]) for k in ("header_bg", "note_fill", "linked_fill", "todo_fill", "total_fill",
                                       "title_bg", "header2_bg", "subheader_fill", "band_fill") if th.get(k)}
     ok_fills |= {"FFFFFF", "00000000", ""}
     font_name = th["font_name"]
@@ -38,11 +45,20 @@ def lint(path, theme="default", only=None):
         if ws.sheet_state != "visible": continue
         if only and ws.title not in only: continue
         if ws.title.startswith("원본"): continue
+        long_caps = []
         bad_font = bad_size = bad_fill = 0
         fill_samples = {}
+        punct_cells = []
         for row in ws.iter_rows():
             for c in row:
                 if c.value is None and (not c.fill or c.fill.fill_type != "solid"): continue
+                if isinstance(c.value, str) and _BAD_PUNCT & set(c.value):
+                    punct_cells.append(c.coordinate)
+                if (c.column == 2 and isinstance(c.value, str) and c.font and c.font.b
+                        and not (c.fill and c.fill.fill_type == "solid"
+                                 and norm(c.fill.fgColor.rgb) not in ("FFFFFF", "00000000", ""))
+                        and len(c.value.strip()) > MAX_CAPTION):
+                    long_caps.append((c.coordinate, len(c.value.strip())))
                 f = c.font
                 if f and f.name and f.name not in (font_name, "Consolas"):
                     bad_font += 1
@@ -58,6 +74,16 @@ def lint(path, theme="default", only=None):
         if bad_fill:
             ex = " · ".join(f"#{k}@{v}" for k, v in list(fill_samples.items())[:4])
             issues.append(f"[{ws.title}] 테마 토큰 외 배경색 {bad_fill}셀 — {ex}")
+        # 8. 문장부호 — 긴 대시 대신 "-"
+        if _BAD_PUNCT & set(ws.title):
+            issues.append(f"[{ws.title}] 시트명 문장부호 위반 — 긴 대시(—)는 - 로 바꾼다")
+        if punct_cells:
+            issues.append(f"[{ws.title}] 문장부호 위반 {len(punct_cells)}셀 — 긴 대시(—) → '-' "
+                          f"(excel_theme.plain_punct) (예: {punct_cells[:5]})")
+        if long_caps:
+            ex = " · ".join(f"{c}({n}자)" for c, n in long_caps[:4])
+            issues.append(f"[{ws.title}] 캡션이 너무 김 {len(long_caps)}셀 (기준 {MAX_CAPTION}자) — "
+                          f"제목만 쓰고 설명은 비고 열·안내 시트로: {ex}")
         margin_bad = [c.coordinate for c in ws["A"] if c.value not in (None, "")]
         row1_bad = [c.coordinate for c in ws[1] if c.value not in (None, "")]
         if margin_bad: issues.append(f"[{ws.title}] A열 여백 위반 {len(margin_bad)}셀 (예: {margin_bad[:3]})")

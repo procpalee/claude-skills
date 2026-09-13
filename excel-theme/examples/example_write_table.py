@@ -36,7 +36,7 @@ def main():
         write_table(
             ws, ["항목", "당기", "전기"], DATA, theme=theme,
             title=f"현금흐름표 (테마: {theme})",
-            currency_cols=[1, 2],            # 당기·전기 = 테마 통화서식(closing=백만원)
+            currency_cols=[1, 2],            # 당기·전기 = 테마 통화서식(원 단위 회계서식)
             section_rows=[1, 5],
             subtotal_rows=[4, 7],
             total_rows=[8],

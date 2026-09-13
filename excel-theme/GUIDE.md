@@ -88,7 +88,7 @@ write_table(ws, ["계정","당기","전기"], data, theme="default",
 | `million` / `billion` | `#,##0,,` / `#,##0,,,` | 1,450 (백만/십억 스케일) |
 | `change` / `bp` | `+#,##0;-#,##0;-` / `#,##0" bp"` | +250 / 125 bp |
 
-> `write_table`의 `currency_cols`는 **테마 기본 통화서식**(default·procpa=`million_won` 백만원, 그 외 `accounting`)을 자동 적용.
+> `write_table`의 `currency_cols`는 **테마 기본 통화서식**(전 테마 `accounting` 원 단위 회계서식, 2026-09-14)을 자동 적용. 백만원은 `number_cols` 로 `million_won` 지정.
 
 ### B-3. 테두리·정렬·행높이
 - 테두리: 표 스타일에 따름(위 B-1). 정렬: 헤더=가운데(자동 줄바꿈), 본문=숫자 우측·텍스트 좌측·세로 가운데.

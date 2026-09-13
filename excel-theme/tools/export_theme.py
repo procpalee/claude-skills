@@ -30,6 +30,7 @@ def main():
         "default": meta["default"],
         "aliases": meta["aliases"],
         "themes": {t["name"]: tp.theme_spec(t["name"]) for t in meta["themes"]},
+        "rules": tp.rules(),
     }
     with open(os.path.join(MCP, "theme.json"), "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)

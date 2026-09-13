@@ -65,7 +65,7 @@ wb.save("output.xlsx")
 from excel_theme import write_table
 write_table(ws, ["계정","당기","전기"], data, theme="default",
             title="재무상태표",
-            currency_cols=[1, 2],                 # 통화 열 → 테마 단위(default=백만원)
+            currency_cols=[1, 2],                 # 통화 열 → 원 단위 회계서식(accounting)
             section_rows=[1], subtotal_rows=[4], total_rows=[5],   # rows의 1-based 인덱스
             input_cells=["C6:D7"], linked_cells=["C10:D10"])       # 입력=크림 / 연결=파랑
 ```
@@ -118,6 +118,11 @@ write_table(ws, ["계정","당기","전기"], data, theme="default",
    제목 셀에 들어가는 **내용은 시트명뿐**이다(기본 규칙 8).
 4. **표 소제목(캡션)** — `write_caption(ws, "B12", "표1. …")` 로만 쓴다: **맑은 고딕 11pt 굵게·검정**(회색·10pt 금지).
    캡션 행 **바로 아래 1행을 비우고** 그 다음 행에 표 헤더(`header_row = 캡션행 + 2`). 사용자 확정 2026-09-04.
+   **캡션은 짧은 제목만 (사용자 확정 2026-09-12 · 필수)** — 표가 무엇인지 알리는 명사구 한 줄로 끝낸다(`MAX_CAPTION` 40자).
+   계산 방법·근거·판단 사유·주의사항을 캡션에 이어 붙이지 않는다
+   ("2-1 재질별 기준 단가 - 재료 단가는 전기 결산 단가나 회사 단가표로, 가공 단가는 전기 가공비 ÷ 생산 kg로 정한다…" ✗
+    → "2-1 재질별 기준 단가" ✓). 설명이 필요하면 **표의 비고·근거 열**이나 별도 안내 시트에 쓴다.
+   시트 상단에 설명 문단을 여러 줄 까는 것도 같은 이유로 지양한다. theme_lint 가 "캡션이 너무 김"으로 잡는다.
 4. **정렬 고정** — 숫자·비율·수식 셀은 **오른쪽 정렬**, 텍스트는 왼쪽(사용자 확정 2026-09-04). `style_body`/`set_number_formats`가 자동 적용하며, 문자열을 반환하는 수식(IF(…,"OK","확인")·TEXT·&)만 텍스트로 취급한다. SUMIFS/COUNTIFS의 조건 문자열("자영")이나 IF(…,"",…)의 빈 문자열은 텍스트 반환이 아니므로 오른쪽이며, 숫자 서식(`number_cols`)을 지정한 열의 수식은 무조건 오른쪽이다(2026-09-04 보강). 본문 폰트는 **맑은 고딕 11pt 검정** 고정.
 5. **열너비 상한 `MAX_COL_WIDTH`=30** (사용자 확정 2026-09-08) — `autofit_columns` 는 이보다 넓히지 않는다.
    한 열을 길게 늘리지 말고, 긴 문장은 **wrap_text** 또는 표 폭까지 **병합**으로 처리한다.
@@ -149,6 +154,14 @@ write_table(ws, ["계정","당기","전기"], data, theme="default",
    설명이 필요하면 제목이 아니라 밴드 아래 `write_caption` 또는 본문 첫 줄에 적는다.
    **감사조서 테마 `audit` 은 해당 없음** — 조서 헤더 6항목을 그대로 쓴다(아래 audit 절).
    theme_lint 가 "제목 밴드는 시트명만"으로 잡는다(audit 테마는 검사 제외).
+9. **문장부호: 긴 대시 `—` → `-` (사용자 확정 2026-09-11 · 필수, 모든 테마 — 워드·PPT 테마도 동일)** — 엑셀에 들어가는
+   **모든 텍스트(제목·캡션·헤더·본문·조서 헤더 값·시트명)** 에 긴 대시(`—` `–` `―`)를 쓰지 않고 하이픈 `-` 을 쓴다
+   (`"연령분석 — 잔액"` ✗ → `"연령분석 - 잔액"` ✓, `"1–3월"` → `"1-3월"`). 가운뎃점 `·` 은 그대로 써도 된다.
+   헬퍼(`apply_theme`·`write_table`·`write_title`·`write_header`·`write_audit_header`·`write_caption`·`write_section_bar`)가
+   `plain_punct` 로 자동 치환하지만, 파이썬에서 문자열을 만들 때부터 `-` 로 쓴다.
+   헬퍼 밖에서 셀에 직접 쓰는 텍스트는 `plain_punct(text)` 를 거친다. **수식(`=…`)은 자동 치환하지 않는다**
+   (시트 참조가 깨질 수 있음) — 수식 안 문자열도 처음부터 `-` 로 쓴다. 시트명도 자동으로 바꾸지 않으므로 처음부터 `-` 로 짓는다.
+   기존 파일을 편집할 때는 수정 범위 안의 텍스트만 맞춘다. theme_lint 가 "문장부호 위반"으로 잡는다.
 
 
 ## 폰트 (앱별 변형)
@@ -195,6 +208,6 @@ default 와 다른 점은 두 가지뿐이며, 감사조서를 만들 때 **반�
   `write_table(..., secondary=True)` → 헤더·합계 모두 `#DDE3E8`. 표 맨 아래 합계행은 하단 medium 선 유지.
 - 틱마크 `write_tickmark(ws, "C12", "R", theme="audit", note="전기조서 대사")` → 빨강 글씨·가운데
   (R 전기조서 · GL 총계정원장 · F Footing · PR 제시재무제표 · Ref. 조서번호).
-- 통화 `currency_cols` 는 default 와 같이 백만원. 원 단위 조서는 `number_cols={…:"accounting"}` 로 지정.
+- 통화 `currency_cols` 는 원 단위 회계서식(`accounting`, 사용자 확정 2026-09-14). 백만원 표시가 필요하면 `number_cols={…:"million_won"}` 로 지정.
 - 린트: `python theme_lint.py <파일> audit`.
 

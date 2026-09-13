@@ -13,7 +13,8 @@ word_theme.py 가 이 dict 를 읽어 get_theme(name)/DEFAULT_THEME 으로 노�
 
 표 옵션 키(word_theme.add_table 가 해석):
   table_sides(False=좌우 외곽선 없음) · table_edge_sz(상/하 외곽 굵기 1/8pt) ·
-  table_header_sep(헤더 하단/합계 상단 옅은 구분선) · table_header_fill/table_header_text(라이트 헤더) ·
+  table_header_sep(헤더 하단/합계 상단 옅은 구분선) · table_sep_sz/table_total_sz(그 구분선 굵기 1/8pt) ·
+  table_header_fill/table_header_text(라이트 헤더) ·
   zebra(False=줄무늬 없음)
 
 제목부 스타일(add_title style=)과 문서유형 프리셋(new_doc doc_type=)은
@@ -25,8 +26,10 @@ _FALLBACK = "Malgun Gothic"
 _SIZES = {"title": 24, "subtitle": 11, "h1": 14, "h2": 12,
           "h3": 12, "header": 11, "body": 11, "small": 9}
 # 표 공통(삼선표 + 라이트 헤더)
-_TABLE = {"zebra": False, "table_sides": False, "table_edge_sz": 16,
-          "table_header_sep": True}
+_TABLE = {"zebra": False, "table_sides": False, "table_edge_sz": 4,
+          "table_header_sep": True, "table_sep_sz": 4, "table_total_sz": 4}
+# 2026-09 사용자 확정: 삼선표 구조는 유지하되 모든 테두리를 일반 굵기(0.5pt=4/8pt)로 통일.
+# (종전 상하 2pt·헤더구분 1pt·합계 1.5pt 의 3단계 굵기는 '만든 티'가 나서 폐기)
 
 
 def _theme(label, *, head, head_sep, band, text, note, accent, negative,
@@ -79,9 +82,10 @@ DEFAULT_WORD_THEME = "default"
 #   side   좌측 세로 악센트 바 + 제목/부제                     — 간단한 메모·검토
 #   band   전폭 색 밴드(짙은 배경 + 흰 제목)                   — 제안서·트렌디 산출물
 #   center 중앙 정렬 + 상하 가는 선(88% 폭)                    — 공식 의견서·공문·회신문
-#   meta   제목(좌) + 문서정보 표(우) + 하단 굵은선            — 조서·품질관리 문서
+#   meta   제목(좌) + 문서정보 표(우) + 하단 굵은선            — (구) 조서
+#   block  정보표 2×4(회사명│결산일 / 조서번호│작성자, 라벨 음영 격자) 위 + 제목 + 0.5pt 하단선, 폭=본문 폭 — 조서 기본(2026-09-07 최종, 4항목)
 # ──────────────────────────────────────────────────────────────
-TITLE_STYLES = ("bar", "side", "band", "center", "meta")
+TITLE_STYLES = ("bar", "side", "band", "center", "meta", "block")
 
 # 문서유형 프리셋 — new_doc(doc_type=...) 지정 시 add_title 의 기본 스타일·캡션이 결정된다.
 #   caption 은 band 스타일의 문서유형 라벨 기본값 (meta={"caption": ...} 로 덮어씀).
@@ -90,5 +94,5 @@ DOC_TYPES = {
     "memo":      {"title_style": "side",   "caption": None},
     "proposal":  {"title_style": "band",   "caption": "PROPOSAL"},
     "opinion":   {"title_style": "center", "caption": None},
-    "workpaper": {"title_style": "meta",   "caption": None},
+    "workpaper": {"title_style": "block",  "caption": None},   # 2026-09: meta → block 확정
 }

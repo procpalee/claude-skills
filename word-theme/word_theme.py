@@ -31,6 +31,7 @@ from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.enum.table import WD_TABLE_ALIGNMENT
 from docx.oxml.ns import qn
 from docx.oxml import OxmlElement
+import re
 
 # 팔레트 폴백용으로 excel-theme 의 팔레트를 참조한다.
 import os as _os
@@ -40,6 +41,15 @@ _EXCEL_DIR = _os.path.join(_os.path.dirname(_os.path.dirname(_os.path.abspath(__
 if _EXCEL_DIR not in _sys.path:
     _sys.path.insert(0, _EXCEL_DIR)
 from excel_theme import PALETTES as _EXCEL_PALETTES, get_palette as _excel_get_palette  # noqa: E402
+from excel_theme import PUNCT_DASHES  # noqa: E402
+
+# 문장부호 규칙(사용자 확정 2026-09-11, 엑셀·워드·PPT 공통): 긴 대시(— – ―) 대신 하이픈 "-".
+_DASH_RE = re.compile("[" + PUNCT_DASHES + "]")
+
+
+def plain_dash(text):
+    """긴 대시(— – ―)를 하이픈(-)으로 바꾼다. 문자열이 아니면 그대로."""
+    return _DASH_RE.sub("-", text) if isinstance(text, str) else text
 
 # 워드 전용 테마 레지스트리(엑셀과 색 일치 불필요). 기본 = default.
 _THIS_DIR = _os.path.dirname(_os.path.abspath(__file__))
@@ -76,7 +86,7 @@ __all__ = [
     "new_doc", "apply_base_style", "add_title", "add_heading",
     "add_paragraph", "add_bullets", "add_callout", "add_table",
     "add_page_number_footer", "THEMES", "DEFAULT_THEME",
-    "TITLE_STYLES", "DOC_TYPES",
+    "TITLE_STYLES", "DOC_TYPES", "BLOCK_FIELDS",
 ]
 
 
@@ -88,7 +98,9 @@ def _rgb(hex6):
 
 
 def _set_run_font(run, name, size=None, color=None, bold=None):
-    """run 에 라틴+동아시아 글꼴, 크기, 색, 굵기 적용."""
+    """run 에 라틴+동아시아 글꼴, 크기, 색, 굵기 적용. 긴 대시는 하이픈으로 바꾼다(모든 헬퍼 텍스트가 여기를 지난다)."""
+    if run.text and _DASH_RE.search(run.text):
+        run.text = plain_dash(run.text)
     run.font.name = name
     # 동아시아(한글) 글꼴은 별도 지정해야 적용된다
     rpr = run._element.get_or_add_rPr()
@@ -142,6 +154,23 @@ def _set_cell_borders(cell, edges):
         el.set(qn("w:sz"), str(sz))
         el.set(qn("w:space"), "0")
         el.set(qn("w:color"), col)
+
+
+def _clear_cell_borders(cell, keep=()):
+    """셀의 모든 테두리를 없앰(nil). keep 에 든 변은 유지."""
+    tcpr = cell._tc.get_or_add_tcPr()
+    borders = tcpr.find(qn("w:tcBorders"))
+    if borders is None:
+        borders = OxmlElement("w:tcBorders")
+        tcpr.append(borders)
+    for edge in ("top", "left", "bottom", "right"):
+        if edge in keep:
+            continue
+        el = borders.find(qn(f"w:{edge}"))
+        if el is None:
+            el = OxmlElement(f"w:{edge}")
+            borders.append(el)
+        el.set(qn("w:val"), "nil")
 
 
 def _set_table_width(tbl, pct=None):
@@ -311,7 +340,8 @@ def add_title(doc, title, subtitle=None, theme=None, style=None, meta=None):
             "side"   좌측 세로 악센트 바 + 제목/부제           — 간단한 메모·검토
             "band"   전폭 색 밴드(짙은 배경 + 흰 제목)         — 제안서·트렌디 산출물
             "center" 중앙 정렬 + 상하 가는 선                  — 공식 의견서·공문
-            "meta"   제목(좌) + 문서정보 표(우) + 하단 굵은선  — 조서
+            "meta"   제목(좌) + 문서정보 표(우) + 하단 굵은선  — (구) 조서
+            "block"  상단 정보표 4칸(회사명·결산일·조서번호·작성자) + 제목 + 0.5pt 선 — 조서(기본)
     meta  : {"caption": 문서유형 라벨(band), "작성": "홍길동", ...} —
             caption 외 항목은 center 의 메타 라인 또는 meta 의 문서정보 표에 표기된다.
     """
@@ -324,7 +354,8 @@ def add_title(doc, title, subtitle=None, theme=None, style=None, meta=None):
     caption = meta.pop("caption", None) or preset.get("caption")
 
     builder = {"bar": _title_bar, "side": _title_side,
-               "band": _title_band, "center": _title_center, "meta": _title_meta}[style]
+               "band": _title_band, "center": _title_center, "meta": _title_meta,
+               "block": _title_block}[style]
     builder(doc, th, title, subtitle, caption, meta)
     return doc
 
@@ -486,6 +517,96 @@ def _title_meta(doc, th, title, subtitle, caption, meta):
     _bar_paragraph(doc, c["primary"], height_pt=2, before=2, line_pt=2)
 
 
+BLOCK_FIELDS = ("회사명", "결산일", "조서번호", "작성자")   # 2026-09-07 확정: 4항목만
+BLOCK_FONT_PT = 10   # 헤더 정보표 글자 크기(2026-09-07 확정)
+_BLOCK_ALIASES = {"회사": "회사명", "조서 번호": "조서번호", "기준일": "결산일", "작성": "작성자"}
+
+
+def _fmt_kdate(v):
+    """'2026.12.31' / '2026-12-31' → '2026년 12월 31일' (그 외는 그대로). block 에서는 사용하지 않음(원문 유지)."""
+    m = re.fullmatch(r"\s*(\d{4})[.\-/](\d{1,2})[.\-/](\d{1,2})\.?\s*", str(v or ""))
+    return f"{m.group(1)}년 {int(m.group(2))}월 {int(m.group(3))}일" if m else (v or "")
+
+
+def _text_width_emu(doc):
+    sec = doc.sections[0]
+    return int(sec.page_width - sec.left_margin - sec.right_margin)
+
+
+def _fit_table_to_text(doc, t, widths, cell_margin_dxa=108):
+    """표 폭 = 본문 폭. 좌측 셀여백만큼 들여쓰기(tblInd)해 테두리가 본문 좌우 끝과 정확히 일치."""
+    text_w = _text_width_emu(doc)
+    tblPr = t._tbl.tblPr
+    for tag, attrs in (("w:tblW", {"w:w": str(int(text_w / 635)), "w:type": "dxa"}),
+                       ("w:tblInd", {"w:w": str(cell_margin_dxa), "w:type": "dxa"}),
+                       ("w:tblLayout", {"w:type": "fixed"})):
+        el = tblPr.find(qn(tag))
+        if el is None:
+            el = OxmlElement(tag)
+            tblPr.append(el)
+        for k_, v_ in attrs.items():
+            el.set(qn(k_), v_)
+    cm = tblPr.find(qn("w:tblCellMar"))
+    if cm is None:
+        cm = OxmlElement("w:tblCellMar")
+        tblPr.append(cm)
+    for side in ("left", "right"):
+        el = cm.find(qn(f"w:{side}"))
+        if el is None:
+            el = OxmlElement(f"w:{side}")
+            cm.append(el)
+        el.set(qn("w:w"), str(cell_margin_dxa))
+        el.set(qn("w:type"), "dxa")
+    t.alignment = WD_TABLE_ALIGNMENT.LEFT
+    t.autofit = False
+    for ci, w in enumerate(widths):
+        t.columns[ci].width = w
+        for cell in t.columns[ci].cells:
+            cell.width = w
+
+
+def _title_block(doc, th, title, subtitle, caption, meta):
+    """G. 정보표(2행×4열: 회사명│결산일 / 조서번호│작성자) 위 + 제목 아래 + 0.5pt 하단선.
+    라벨 칸 연회색 음영, 0.5pt 격자, 표 폭 = 본문 폭. — 조서 기본(2026-09-07 최종 확정).
+    2026-09-07 확정: 4항목만 — 검토자·작성일자 등 다른 키는 무시한다."""
+    c, s = th["colors"], th["sizes"]
+    meta = {_BLOCK_ALIASES.get(k, k): v for k, v in (meta or {}).items()}
+    items = [(k, meta.pop(k, "")) for k in BLOCK_FIELDS]   # 4항목 고정, 나머지 키 무시
+    if len(items) % 2:
+        items.append(("", ""))
+    n_rows = len(items) // 2
+    text_w = _text_width_emu(doc)
+    label_w = int(Cm(2.6))
+    value_w = int((text_w - 2 * label_w) / 2)
+    t = doc.add_table(rows=n_rows, cols=4)
+    _fit_table_to_text(doc, t, [label_w, value_w, label_w, value_w])
+    hdr_fill = c.get("table_header_fill", c["band"])
+    grid_b = {e: (4, c["border_in"]) for e in ("top", "bottom", "left", "right")}
+    for idx, (k, v) in enumerate(items):
+        ri, ci = divmod(idx, 2)
+        kc, vc = t.cell(ri, ci * 2), t.cell(ri, ci * 2 + 1)
+        for cc, txt, bold, fill in ((kc, str(k), True, hdr_fill), (vc, str(v), False, None)):
+            _set_cell_borders(cc, grid_b)
+            if fill and txt:
+                _shade_cell(cc, fill)
+            run = cc.paragraphs[0].add_run(txt)
+            _set_run_font(run, th["font_name"], size=BLOCK_FONT_PT, color=c["text"], bold=bold)
+            _tighten_cell(cc)
+    gap = doc.add_paragraph()                       # 헤더 다음 한 줄 띄움
+    gap.paragraph_format.space_before = Pt(0)
+    gap.paragraph_format.space_after = Pt(0)
+    p = doc.add_paragraph()
+    p.paragraph_format.space_before = Pt(0)
+    p.paragraph_format.space_after = Pt(4)
+    _tighten_title_lines(p, s["title"] - 4)
+    run = p.add_run(title)
+    _set_run_font(run, th["font_name"], size=s["title"] - 4, color=c["title_color"], bold=True)
+    if subtitle:
+        sp = doc.add_paragraph()
+        _set_run_font(sp.add_run(subtitle), th["font_name"], size=s["subtitle"], color=c["secondary"])
+    _bar_paragraph(doc, c["border_out"], height_pt=1, before=0, after=8, line_pt=1)
+
+
 # ──────────────────────────────────────────────────────────────
 # 콘텐츠 헬퍼
 # ──────────────────────────────────────────────────────────────
@@ -580,6 +701,8 @@ def add_table(doc, headers, rows, theme=None,
     sides = th.get("table_sides", True)
     edge_sz = th.get("table_edge_sz", 18)
     sep = th.get("table_header_sep", False)
+    sep_sz = th.get("table_sep_sz", 8)          # 헤더 하단 구분선 굵기(1/8pt)
+    total_sz = th.get("table_total_sz", 12)     # 합계행 상단선 굵기(1/8pt)
     edge_col, in_col, in_sz = c["border_out"], c["border_in"], 4
 
     n_cols = len(headers)
@@ -601,9 +724,9 @@ def add_table(doc, headers, rows, theme=None,
         else:
             ed["right"] = (in_sz, in_col)
         if ri == 0 and sep:                             # 헤더 하단 구분선
-            ed["bottom"] = (8, c["secondary_lt"])
+            ed["bottom"] = (sep_sz, c["secondary_lt"])
         if total:
-            ed["top"] = (8, c["secondary_lt"]) if sep else (12, c["border_out"])
+            ed["top"] = (sep_sz, c["secondary_lt"]) if sep else (total_sz, c["border_out"])
         return ed
 
     # 헤더

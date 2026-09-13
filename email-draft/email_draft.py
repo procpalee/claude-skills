@@ -35,13 +35,17 @@ import os
 import re
 import mimetypes
 from email.message import EmailMessage
+from email.utils import formatdate
 from email.generator import BytesGenerator
 
 FONT = "font-family:'Noto Sans KR','Malgun Gothic','맑은 고딕',sans-serif;"
+FONT_SIZE = "12pt"                 # Outlook 글꼴 크기 12 (사용자 확정 2026-09-09)
+TEXT_COLOR = "#000000"             # 글자색은 검정만
+BODY_STYLE = f"{FONT} font-size:{FONT_SIZE}; line-height:1.7; color:{TEXT_COLOR};"
 _TD = "border:1px solid #999; padding:4px 10px;"
 
-SENDER = "이재현"
-CLOSING = "감사합니다."
+SENDER = None       # 본문에 서명을 넣지 않는다 — Outlook 서명이 자동으로 붙는다
+CLOSING = None      # Outlook 서명 첫 줄이 "감사합니다. / 이재현 드림." 이라 본문에 넣으면 중복
 
 
 # ──────────────────────────────────────────────
@@ -71,19 +75,39 @@ def table(headers, rows):
     for r in rows:
         tds = "".join(f"<td style='{_TD}'>{c}</td>" for c in r)
         trs += f"<tr>{tds}</tr>"
-    return (f"<table style='border-collapse:collapse; font-size:13px; margin:4px 0 14px;'>"
+    return (f"<table style='border-collapse:collapse; {FONT} font-size:{FONT_SIZE};"
+            f" color:{TEXT_COLOR}; margin:4px 0 14px;'>"
             f"<tr>{th}</tr>{trs}</table>")
 
 
 def assemble_body(greeting, blocks, closing=CLOSING, sender=SENDER, attachments_note=None):
-    """표준 구조로 본문 완성: 인사 → 내용 블록들 → (첨부 표기) → 맺음 → 서명."""
+    """표준 구조로 본문 완성: 인사 → 내용 블록들 → (첨부 표기) → (맺음·서명).
+
+    맺음·서명(closing/sender)은 기본값 None — Outlook 서명이 자동으로 붙기 때문에
+    본문에 또 쓰면 "감사합니다 / 이재현 드림"이 두 번 나온다. 서명이 없는 상대에게
+    보내는 등 본문에 직접 넣어야 할 때만 문자열을 넘긴다.
+
+    바깥 구조는 완전한 HTML 문서 + 1칸 표 래퍼다. Outlook은 초안(.eml)을 열 때 서명을
+    "본문 첫 블록 다음"에 끼워 넣는데, 본문 전체가 표 한 칸이면 그 자리가 표 바깥(= 본문 끝)이
+    되어 인사말과 본문 사이가 갈라지지 않는다. 마지막 빈 문단은 서명이 안착할 자리다.
+    """
     parts = [p(greeting)] + list(blocks)
     if attachments_note:
         parts.append(p(f"<b>첨부</b>: {attachments_note}"))
-    parts.append(p(closing))
-    parts.append(f"<p style='margin:0;'>{sender} 드림</p>")
+    if closing:
+        parts.append(p(closing))
+    if sender:
+        parts.append(f"<p style='margin:0;'>{sender} 드림</p>")
     inner = "\n".join(parts)
-    return f"<div style=\"{FONT} font-size:14px; line-height:1.7; color:#222;\">{inner}</div>"
+    return (
+        "<html><head><meta http-equiv='Content-Type' content='text/html; charset=utf-8'></head>"
+        f"<body style=\"{BODY_STYLE}\">"
+        "<table role='presentation' cellpadding='0' cellspacing='0' border='0'"
+        " style='border-collapse:collapse; width:100%;'>"
+        f"<tr><td style=\"{BODY_STYLE} padding:0;\">{inner}</td></tr></table>"
+        "<p style='margin:0;'>&nbsp;</p>"
+        "</body></html>"
+    )
 
 
 # ──────────────────────────────────────────────
@@ -91,8 +115,11 @@ def assemble_body(greeting, blocks, closing=CLOSING, sender=SENDER, attachments_
 # ──────────────────────────────────────────────
 def _plain_fallback(html):
     """HTML을 못 보는 클라이언트용 텍스트 폴백(태그 제거)."""
+    body = re.search(r"<body[^>]*>(.*)</body>", html, re.S | re.I)
+    html = body.group(1) if body else html
     txt = re.sub(r"<(br|/p|/tr|/li)[^>]*>", "\n", html)
     txt = re.sub(r"<[^>]+>", "", txt)
+    txt = txt.replace("&nbsp;", " ").replace("&amp;", "&")
     return re.sub(r"\n{3,}", "\n\n", txt).strip()
 
 
@@ -107,6 +134,7 @@ def build_email(subject, body_html, out_path, to="", cc="",
         msg["Cc"] = cc
     # Outlook이 '보내지 않은 새 메일(작성창)'로 열게 하는 핵심 헤더
     msg["X-Unsent"] = "1"
+    msg["Date"] = formatdate(localtime=True)   # 없으면 Outlook이 파일을 못 여는 경우가 있다
 
     msg.set_content(plain_text or _plain_fallback(body_html))
     msg.add_alternative(body_html, subtype="html")

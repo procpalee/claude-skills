@@ -140,7 +140,8 @@ def format_plan(spec, *, header_row=4, start_col=2, n_cols=1, n_rows=1, title_ce
         if spec.get("title_fill"):
             ops.append({"op": "fill", "range": _rng(tcol, trow, max(end_col, tcol), trow),
                         "color": col["title_bg"]})
-            ops.append(_font(title_cell, spec, sizes["title"], True, col["title_font"]))
+            ops.append(_font(_rng(tcol, trow, max(end_col, tcol), trow), spec, sizes["title"], True,
+                             col["title_font"]))   # 밴드 전체에 글꼴(excel_theme.apply_theme 와 동일)
         else:
             ops.append(_font(title_cell, spec, sizes["title"], True,
                              col.get("title_color", col["title_font"])))

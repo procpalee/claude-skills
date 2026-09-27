@@ -1071,6 +1071,11 @@ def mark_cells(ws, theme, *, input=(), linked=(), todo=()):
         _fill_ranges(ws, th.get("linked_fill", "CCECFF"), linked)
     if todo:
         _fill_ranges(ws, th.get("todo_fill", "FFFF00"), todo)
+    for rng in list(input) + list(linked) + list(todo):   # 빈 칸도 테마 글꼴(미입수 칸은 보통 비어 있다 - theme_lint '테마 외 폰트' 방지)
+        obj = ws[rng]
+        for c in ([x for r in obj for x in r] if isinstance(obj, tuple) else [obj]):
+            if c.value is None:
+                c.font = Font(name=th["font_name"], size=th["font_size_body"])
 
 
 def highlight_hardcoded(ws, theme, *ranges):
@@ -1137,7 +1142,9 @@ def apply_theme(ws, theme=DEFAULT_THEME, header_row=1, data_range=None,
             # 제목 바 색(title_bg)을 데이터가 있는 마지막 열까지 가로로 확장
             bar = _fill(th.get("title_bg", th["header_bg"]))
             for col in range(tcol, max_col + 1):
-                ws.cell(row=trow, column=col).fill = bar
+                bc = ws.cell(row=trow, column=col); bc.fill = bar
+                bc.font = Font(name=th["font_name"], size=th["font_size_title"], bold=True,
+                               color=th.get("title_font_color", th["header_font_color"]))
             tc.font = Font(name=th["font_name"], size=th["font_size_title"],
                            bold=True,
                            color=th.get("title_font_color", th["header_font_color"]))
